@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0 # setup-uv publishes exact version tags only
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      # Offline only: the keyword baseline answers through the real TypeSafe SDK. No key, no cost.
+      - run: uv run pytest -q
+      - run: uv run triage-desk demo -n 5
+      - run: uv run triage-desk eval --out /tmp/runs
+      - run: uv run jev-guard eval --out /tmp/runs
+      - name: Hook smoke test (Claude Code's stdin/stdout protocol)
+        run: |
+          out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' | CLAUDE_PROJECT_DIR=/tmp .venv/bin/python -m jev_guard.hook)
+          echo "$out"
+          echo "$out" | grep -q '"permissionDecision": "deny"'
